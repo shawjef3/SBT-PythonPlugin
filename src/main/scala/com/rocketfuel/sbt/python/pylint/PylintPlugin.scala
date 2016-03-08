@@ -24,7 +24,15 @@ object PylintPlugin extends AutoPlugin {
       pylintFailOnError := true,
       pylint := {
         PythonPlugin.python.value
-        Actions.pylint(PythonPlugin.pythonClasses.value, pylintBinary.value, pylintRc.value, pylintFormat.value, pylintTarget.value)
+        Actions.pylint(
+          baseDirectory = PythonPlugin.pythonClasses.value,
+          pylintBinary = pylintBinary.value,
+          pylintRc = pylintRc.value,
+          pylintFormat = pylintFormat.value,
+          pylintTarget = pylintTarget.value,
+          pylintFailOnError = pylintFailOnError.value,
+          logger = Keys.streams.value.log
+        )
       }
 
     )
@@ -47,15 +55,25 @@ object PylintPlugin extends AutoPlugin {
       pylintBinary: File,
       pylintRc: File,
       pylintFormat: ReportFormat,
-      pylintTarget: File
-    ): Process = {
+      pylintTarget: File,
+      pylintFailOnError: Boolean,
+      logger: Logger
+    ): Unit = {
       val basePath = baseDirectory.toPath
       val files =
         for (file <- baseDirectory.***.get) yield {
           basePath.relativize(file.toPath).toString
         }
 
-      Process(Seq[String](pylintBinary.getAbsolutePath, "--rcfile", pylintRc.getAbsolutePath, "-f", pylintFormat.value) ++ files) #> pylintTarget run()
+      val p = Process(Seq[String](pylintBinary.getAbsolutePath, "--rcfile", pylintRc.getAbsolutePath, "-f", pylintFormat.value) ++ files) #> pylintTarget run()
+
+      p.exitValue() match {
+        case 0 =>
+        case n =>
+          val message = s"pylint failed with exit code $n."
+          if (pylintFailOnError) sys.error(message)
+          else logger.error(message)
+      }
     }
 
     def generateRcFile(
