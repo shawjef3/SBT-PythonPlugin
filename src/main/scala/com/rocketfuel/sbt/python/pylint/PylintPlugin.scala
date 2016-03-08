@@ -24,7 +24,7 @@ object PylintPlugin extends AutoPlugin {
       pylintFailOnError := true,
       pylint := {
         PythonPlugin.python.value
-        Actions.pylint(PythonPlugin.pythonTarget.value, pylintBinary.value, pylintRc.value, pylintFormat.value, pylintTarget.value)
+        Actions.pylint(PythonPlugin.pythonClasses.value, pylintBinary.value, pylintRc.value, pylintFormat.value, pylintTarget.value)
       }
 
     )

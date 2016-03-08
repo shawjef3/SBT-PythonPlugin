@@ -17,13 +17,13 @@ object PythonPlugin extends AutoPlugin {
 
   val pythonManagedSources = TaskKey[Seq[File]]("List the Python source files in pythonManagedSource")
 
-  val pythonTarget = SettingKey[File]("The directory for compiled Python code.")
+  val pythonClasses = SettingKey[File]("The directory for compiled Python code.")
 
   val pythonZip = TaskKey[Unit]("Zip the compiled Python source files.")
 
   def rawProjectSettings: Seq[Def.Setting[_]] =
     Seq(
-      pythonTarget := Keys.target.value / "python",
+      pythonClasses := Keys.target.value / "python" / (Defaults.prefix(Keys.configuration.value.name) + "classes"),
       pythonSource := Keys.sourceDirectory.value / "python",
       pythonManagedSource <<= Defaults.configSrcSub(pythonManagedSource),
       Keys.sourceDirectories ++= Seq(pythonSource.value, pythonManagedSource.value)
@@ -36,7 +36,7 @@ object PythonPlugin extends AutoPlugin {
       python := {
         val pythonSourceV = pythonSource.value
         val pythonSourcePath = pythonSourceV.toPath
-        val pythonTargetV = pythonTarget.value.toPath
+        val pythonTargetV = pythonClasses.value.toPath
 
         val filesToCopy = pythonSources(pythonSourceV)
 
@@ -48,11 +48,11 @@ object PythonPlugin extends AutoPlugin {
       },
       pythonZip := {
         python.value
-        val pythonTargetV = pythonTarget.value
+        val pythonTargetV = pythonClasses.value
         val pythonSourcesV = pythonTargetV.***.get
         val pythonManagedSourceV = pythonManagedSource.value
         val pythonManagedSourcesV = pythonManagedSources.value
-        val destFileV = pythonTarget.value
+        val destFileV = pythonClasses.value
         val loggerV = Keys.streams.value.log
 
         zipFiles(pythonTargetV, pythonSourcesV, pythonManagedSourceV, pythonManagedSourcesV, destFileV, loggerV)
