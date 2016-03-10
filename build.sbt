@@ -1,6 +1,6 @@
 organization := "com.rocketfuel.sbt"
 
-name := "sbt-python"
+name := "python-plugin"
 
 version := "1.0"
 

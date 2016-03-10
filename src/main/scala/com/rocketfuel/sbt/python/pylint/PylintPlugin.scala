@@ -5,36 +5,49 @@ import sbt._
 
 object PylintPlugin extends AutoPlugin {
 
-  val pylint = TaskKey[Unit]("Run pylint on the files in pythonSource.")
+  val pylint = taskKey[Unit]("Run pylint on the files in pythonSource.")
 
-  val pylintGenerateRc = TaskKey[Unit]("Create a default pylint.rc.")
+  val pylintProcessBuilder = taskKey[ProcessBuilder]("")
 
-  val pylintBinary = SettingKey[File]("The pylint binary to use.")
+  val pylintGenerateRc = taskKey[Unit]("Create a default pylint.rc.")
 
-  val pylintRc = SettingKey[File]("The location of the pylint configuration file.")
+  val pylintBinary = settingKey[File]("The pylint binary to use.")
 
-  val pylintFormat = SettingKey[ReportFormat]("The report format for pylint.")
+  val pylintRc = settingKey[File]("The location of the pylint configuration file.")
 
-  val pylintFailOnError = SettingKey[Boolean]("Determines whether or not pylint failure causes task failure.")
+  val pylintFormat = settingKey[ReportFormat]("The report format for pylint.")
 
-  val pylintTarget = SettingKey[File]("The output file from pylint.")
+  val pylintFailOnError = settingKey[Boolean]("Determines whether or not pylint failure causes task failure.")
+
+  val pylintTarget = settingKey[File]("The output file from pylint.")
 
   def rawProjectSettings: Seq[Def.Setting[_]] =
     Seq(
+      pylintTarget := {
+        val config = Keys.configuration.value.name
+        val configPart =
+          if (config == Compile.name) ""
+          else s"_$config"
+        Keys.target.value / (s"pylint${configPart}_report." + pylintFormat.value.fileExtension)
+      },
       pylintFailOnError := true,
-      pylint := {
-        PythonPlugin.python.value
-        Actions.pylint(
-          baseDirectory = PythonPlugin.pythonClasses.value,
+      pylintProcessBuilder := {
+        Actions.pylintBuildProcess(
+          baseDirectory = PythonPlugin.pythonClassDirectory.value,
           pylintBinary = pylintBinary.value,
           pylintRc = pylintRc.value,
           pylintFormat = pylintFormat.value,
-          pylintTarget = pylintTarget.value,
+          pylintTarget = pylintTarget.value
+        )
+      },
+      pylint := {
+        Actions.pylint(
+          pylintProcess = pylintProcessBuilder.value,
           pylintFailOnError = pylintFailOnError.value,
           logger = Keys.streams.value.log
         )
-      }
-
+      },
+      pylint <<= pylint.dependsOn(PythonPlugin.python)
     )
 
   override def projectSettings: Seq[Def.Setting[_]] =
@@ -44,40 +57,50 @@ object PylintPlugin extends AutoPlugin {
       pylintRc := Keys.baseDirectory.value / "pylint.rc",
       pylintFormat := ReportFormat.Text,
       pylintGenerateRc :=
-        Actions.generateRcFile(Keys.baseDirectory.value, pylintBinary.value, pylintRc.value),
-      pylintTarget in Compile := Keys.target.value / ("pylint_report." + pylintFormat.value.fileExtension),
-      pylintTarget in Test := Keys.target.value / ("pylint_test_report." + pylintFormat.value.fileExtension)
+        Actions.generateRcFile(pylintBinary.value, pylintRc.value)
     )
 
+  override def requires = PythonPlugin
+
   object Actions {
-    def pylint(
+    def pylintBuildProcess(
       baseDirectory: File,
       pylintBinary: File,
       pylintRc: File,
       pylintFormat: ReportFormat,
-      pylintTarget: File,
-      pylintFailOnError: Boolean,
-      logger: Logger
-    ): Unit = {
+      pylintTarget: File
+    ): ProcessBuilder = {
       val basePath = baseDirectory.toPath
       val files =
         for (file <- baseDirectory.***.get) yield {
           basePath.relativize(file.toPath).toString
         }
 
-      val p = Process(Seq[String](pylintBinary.getAbsolutePath, "--rcfile", pylintRc.getAbsolutePath, "-f", pylintFormat.value) ++ files) #> pylintTarget run()
+      val rcArgs =
+        if (pylintRc.exists()) Seq("--rcfile", pylintRc.getAbsolutePath)
+        else Seq.empty
 
-      p.exitValue() match {
-        case 0 =>
-        case n =>
-          val message = s"pylint failed with exit code $n."
-          if (pylintFailOnError) sys.error(message)
-          else logger.error(message)
+      Process((Seq(pylintBinary.getAbsolutePath, "-f", pylintFormat.value) ++ rcArgs ++ files).filter(_.nonEmpty), baseDirectory) #> pylintTarget
+    }
+
+    def pylint(
+      pylintProcess: ProcessBuilder,
+      pylintFailOnError: Boolean,
+      logger: Logger
+    ): Unit = {
+      logger.debug(s"executing $pylintProcess")
+
+      val p = pylintProcess.run()
+      val exitValue = p.exitValue()
+
+      if (exitValue != 0) {
+        val message = s"pylint failed with exit code $exitValue."
+        if (pylintFailOnError) sys.error(message)
+        else logger.error(message)
       }
     }
 
     def generateRcFile(
-      baseDirectory: File,
       pylintBinary: File,
       pylintRc: File
     ): Process = {
