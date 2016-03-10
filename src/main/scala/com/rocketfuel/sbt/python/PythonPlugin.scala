@@ -30,30 +30,37 @@ object PythonPlugin extends AutoPlugin {
       pythonManagedSourceRoot := Keys.target.value / "python" / "src_managed" / Defaults.nameForSrc(Keys.configuration.value.name),
       pythonSources := listPythonSources(pythonSourceRoot.value, sbt.Keys.streams.value.log),
       pythonManagedSources := listPythonSources(pythonManagedSourceRoot.value, sbt.Keys.streams.value.log),
+      Keys.managedSourceDirectories += pythonManagedSourceRoot.value,
       Keys.sourceDirectories ++= Seq(pythonSourceRoot.value, pythonManagedSourceRoot.value),
       python := {
         val logger = Keys.streams.value.log
-        val pythonSourceV = pythonSourceRoot.value.toPath
         val pythonTargetV = pythonClassDirectory.value.toPath
 
         IO.delete(pythonTargetV.toFile)
 
         Files.createDirectories(pythonTargetV)
 
-        val filesToCopy = pythonSources.value
-
-        for (fileToCopy <- filesToCopy.map(_.toPath)) {
-          val relative = pythonSourceV.relativize(fileToCopy)
+        def copyFile(root: Path, fileToCopy: Path): Unit = {
+          val relative = root.relativize(fileToCopy)
           val destination = pythonTargetV.resolve(relative)
           logger.debug(s"Copying $fileToCopy to $destination.")
           Files.copy(fileToCopy, destination)
         }
+
+        val pythonSourceRootV = pythonSourceRoot.value.toPath
+
+        for (fileToCopy <- pythonSources.value) {
+          copyFile(pythonSourceRootV, fileToCopy.toPath)
+        }
+
+        val pythonManagedSourceRootV = pythonManagedSourceRoot.value.toPath
+
+        for (fileToCopy <- pythonManagedSources.value) {
+          copyFile(pythonManagedSourceRootV, fileToCopy.toPath)
+        }
       },
       pythonZip := {
-        val pythonTargetV = pythonClassDirectory.value
-        val pythonSourcesV = pythonTargetV.***.get
-        val pythonManagedSourceV = pythonManagedSourceRoot.value
-        val pythonManagedSourcesV = pythonManagedSources.value
+        val pythonClassDirectoryV = pythonClassDirectory.value
         val projectName = Keys.name.value
         val projectVersion = Keys.version.value
         val fileSuffix = {
@@ -64,7 +71,7 @@ object PythonPlugin extends AutoPlugin {
         val destFileV = Keys.target.value / "python" / s"$projectName-$projectVersion$fileSuffix.zip"
         val loggerV = Keys.streams.value.log
 
-        zipFiles(pythonTargetV, pythonSourcesV, pythonManagedSourceV, pythonManagedSourcesV, destFileV, loggerV)
+        zipFiles(pythonClassDirectoryV, destFileV, loggerV)
       },
       pythonZip <<= pythonZip.dependsOn(python)
     )
@@ -72,7 +79,7 @@ object PythonPlugin extends AutoPlugin {
   override def projectSettings: Seq[Def.Setting[_]] =
     inConfig(Compile)(rawProjectSettings) ++
       inConfig(Test)(rawProjectSettings) ++ Seq(
-      pythonBinary := pythonBinaryPath(Keys.streams.value.log)
+      pythonBinary := pythonBinaryPath()
     )
 
   /**
@@ -93,7 +100,7 @@ object PythonPlugin extends AutoPlugin {
     *
     * @return
     */
-  def pythonBinaryPath(logger: Logger): File = {
+  def pythonBinaryPath(): File = {
     val searchCommand =
       if (System.getProperty("os.name").startsWith("Windows")) Seq("where", "python")
       else Seq("which", "python")
@@ -103,16 +110,11 @@ object PythonPlugin extends AutoPlugin {
   /**
     * Add the files in pythonSources to a new zip file, destFile.
     *
-    * @param pythonSourceRoot The python source directory. Usually src/main/python.
-    * @param pythonSources The list of files to be added to the zip.
     * @param destFile The zip file to be created.
     * @param logger
     */
   def zipFiles(
-    pythonSourceRoot: File,
-    pythonSources: Seq[File],
-    pythonManagedSourceRoot: File,
-    pythonManagedSources: Seq[File],
+    pythonClassesRoot: File,
     destFile: File,
     logger: Logger
   ): Unit = {
@@ -123,24 +125,25 @@ object PythonPlugin extends AutoPlugin {
     Files.deleteIfExists(destFile.toPath)
     val zipFs = FileSystems.newFileSystem(zipURI, Map("create" -> "true"))
 
+    val pythonClassesRootPath = pythonClassesRoot.toPath
+
     /**
       * Get the path of the file in the zip file.
       */
-    def relativize(pythonSourceRoot: Path, pythonSource: Path): Path = {
-      val zipPath = pythonSourceRoot.relativize(pythonSource)
+    def relativize(classFile: Path): Path = {
+      val zipPath = pythonClassesRootPath.relativize(classFile)
       zipFs.getPath("/").resolve(zipPath.toString)
     }
 
-    val sourcesAndRoots =
-      pythonSources.map(_.toPath).zip(Stream.continually(pythonSourceRoot.toPath)) ++
-        pythonManagedSources.map(_.toPath).zip(Stream.continually(pythonManagedSourceRoot.toPath))
-
-    for ((sourceFile, sourceRoot) <- sourcesAndRoots) {
-      if (Files.isRegularFile(sourceFile)) {
-        val zipPythonSource = relativize(sourceRoot, sourceFile)
-        logger.info(s"Copying $sourceFile to $destFile:$zipPythonSource")
-        Files.copy(sourceFile, zipPythonSource)
+    val classFiles =
+      for (pythonClass <- pythonClassesRoot.***.get.filter(_.isFile)) yield {
+        pythonClass.toPath
       }
+
+    for (classFile <- classFiles) {
+      val zipPythonSource = relativize(classFile)
+      logger.debug(s"Copying $classFile to $destFile:$zipPythonSource")
+      Files.copy(classFile, zipPythonSource)
     }
 
     zipFs.close()
