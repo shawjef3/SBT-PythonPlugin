@@ -72,7 +72,7 @@ object PylintPlugin extends AutoPlugin {
     ): ProcessBuilder = {
       val basePath = baseDirectory.toPath
       val files =
-        for (file <- baseDirectory.***.get) yield {
+        for (file <- baseDirectory.***.get.filter(_.isFile)) yield {
           basePath.relativize(file.toPath).toString
         }
 
@@ -80,7 +80,7 @@ object PylintPlugin extends AutoPlugin {
         if (pylintRc.exists()) Seq("--rcfile", pylintRc.getAbsolutePath)
         else Seq.empty
 
-      Process((Seq(pylintBinary.getAbsolutePath, "-f", pylintFormat.value) ++ rcArgs ++ files).filter(_.nonEmpty), baseDirectory) #> pylintTarget
+      Process(Seq(pylintBinary.getAbsolutePath, "-f", pylintFormat.value) ++ rcArgs ++ files, baseDirectory) #> pylintTarget
     }
 
     def pylint(
