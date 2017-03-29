@@ -47,7 +47,9 @@ object PylintPlugin extends AutoPlugin {
           logger = Keys.streams.value.log
         )
       },
-      pylint <<= pylint.dependsOn(PythonPlugin.python)
+      //Insert pylint between python compilation and zipping.
+      pylint <<= pylint.dependsOn(PythonPlugin.pythonCompile),
+      PythonPlugin.pythonPackageBin <<= PythonPlugin.pythonPackageBin.dependsOn(pylint)
     )
 
   override def projectSettings: Seq[Def.Setting[_]] =
@@ -72,7 +74,7 @@ object PylintPlugin extends AutoPlugin {
     ): ProcessBuilder = {
       val basePath = baseDirectory.toPath
       val files =
-        for (file <- baseDirectory.***.get.filter(_.isFile)) yield {
+        for (file <- baseDirectory.**("*.py").get.filter(_.isFile)) yield {
           basePath.relativize(file.toPath).toString
         }
 
